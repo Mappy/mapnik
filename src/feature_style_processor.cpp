@@ -202,10 +202,13 @@ void feature_style_processor<Processor>::apply(mapnik::layer const& lyr, std::se
 }
 
 template <typename Processor>
-void feature_style_processor<Processor>::apply_to_layer(layer const& lay, Processor & p,
-                                                        projection const& proj0,
+void feature_style_processor<Processor>::prepare_datasource_query(layer const& lay, Processor & p, projection const& proj0,
                                                         double scale_denom,
-                                                        std::set<std::string>& names)
+                                                        std::set<std::string>& names,
+                                                        proj_transform const & prj_trans,
+                                                        std::vector<feature_type_style*> & active_styles,
+                                                        query & q
+                                                        )
 {
     std::vector<std::string> const& style_names = lay.styles();
 
@@ -229,8 +232,6 @@ void feature_style_processor<Processor>::apply_to_layer(layer const& lay, Proces
     progress_timer layer_timer(std::clog, "rendering total for layer: '" + lay.name() + "'");
 #endif
 
-    projection proj1(lay.srs());
-    proj_transform prj_trans(proj0,proj1);
 
 #if defined(RENDERING_STATS)
     if (! prj_trans.equal())
@@ -320,8 +321,7 @@ void feature_style_processor<Processor>::apply_to_layer(layer const& lay, Proces
     query::resolution_type res(m_.width()/qw,
                                m_.height()/qh);
 
-    query q(layer_ext,res,scale_denom,m_.get_current_extent());
-    std::vector<feature_type_style*> active_styles;
+    q = query(layer_ext,res,scale_denom,m_.get_current_extent());
     attribute_collector collector(names);
     double filt_factor = 1.0;
     directive_collector d_collector(filt_factor);
@@ -398,78 +398,118 @@ void feature_style_processor<Processor>::apply_to_layer(layer const& lay, Proces
         {
             q.add_property_name(group_by);
         }
+    }
 
-        bool cache_features = lay.cache_features() && active_styles.size() > 1;
+}
 
-        // Render incrementally when the column that we group by
-        // changes value.
-        if (group_by != "")
-        {
-            featureset_ptr features = ds->features(q);
-            if (features) {
-                // Cache all features into the memory_datasource before rendering.
-                memory_datasource cache;
-                feature_ptr feature, prev;
+template <typename Processor>
+void feature_style_processor<Processor>::render_styles(layer const& lay, Processor & p, projection const& proj0,
+                                                        double scale_denom,
+                                                        std::set<std::string>& names,
+                                                        proj_transform const & prj_trans,
+                                                        std::vector<feature_type_style*> & active_styles,
+                                                        query & q
+                                                        )
+{
+    bool cache_features = lay.cache_features() && active_styles.size() > 1;
 
-                while ((feature = features->next()))
+    mapnik::datasource_ptr ds = lay.datasource();
+    std::string group_by = lay.group_by();
+    std::vector<std::string> const& style_names = lay.styles();
+
+
+    // Render incrementally when the column that we group by
+    // changes value.
+    if (group_by != "")
+    {
+        featureset_ptr features = ds->features(q);
+        if (features) {
+            // Cache all features into the memory_datasource before rendering.
+            memory_datasource cache;
+            feature_ptr feature, prev;
+
+            while ((feature = features->next()))
+            {
+                if (prev && prev->get(group_by) != feature->get(group_by))
                 {
-                    if (prev && prev->get(group_by) != feature->get(group_by))
+                    // We're at a value boundary, so render what we have
+                    // up to this point.
+                    int i = 0;
+                    BOOST_FOREACH (feature_type_style * style, active_styles)
                     {
-                        // We're at a value boundary, so render what we have
-                        // up to this point.
-                        int i = 0;
-                        BOOST_FOREACH (feature_type_style * style, active_styles)
-                        {
-                            render_style(lay, p, style, style_names[i++],
-                                         cache.features(q), prj_trans, scale_denom);
-                        }
-                        cache.clear();
+                        render_style(lay, p, style, style_names[i++],
+                                     cache.features(q), prj_trans, scale_denom);
                     }
-                    cache.push(feature);
-                    prev = feature;
+                    cache.clear();
                 }
-
-                int i = 0;
-                BOOST_FOREACH (feature_type_style * style, active_styles)
-                {
-                    render_style(lay, p, style, style_names[i++],
-                                 cache.features(q), prj_trans, scale_denom);
-                }
+                cache.push(feature);
+                prev = feature;
             }
-        }
-        else if (cache_features)
-        {
-            featureset_ptr features = ds->features(q);
-            if (features) {
-                // Cache all features into the memory_datasource before rendering.
-                memory_datasource cache;
-                feature_ptr feature;
-                while ((feature = features->next()))
-                {
-                    cache.push(feature);
-                }
 
-                int i = 0;
-                BOOST_FOREACH (feature_type_style * style, active_styles)
-                {
-                    render_style(lay, p, style, style_names[i++],
-                                 cache.features(q), prj_trans, scale_denom);
-                }
-            }
-        }
-        // We only have a single style and no grouping.
-        else
-        {
             int i = 0;
             BOOST_FOREACH (feature_type_style * style, active_styles)
             {
-                featureset_ptr features = ds->features(q);
-                if (features) {
-                    render_style(lay, p, style, style_names[i++],
-                                 features, prj_trans, scale_denom);
-                }
+                render_style(lay, p, style, style_names[i++],
+                             cache.features(q), prj_trans, scale_denom);
             }
         }
+    }
+    else if (cache_features)
+    {
+        featureset_ptr features = ds->features(q);
+        if (features) {
+            // Cache all features into the memory_datasource before rendering.
+            memory_datasource cache;
+            feature_ptr feature;
+            while ((feature = features->next()))
+            {
+                cache.push(feature);
+            }
+
+            int i = 0;
+            BOOST_FOREACH (feature_type_style * style, active_styles)
+            {
+                render_style(lay, p, style, style_names[i++],
+                             cache.features(q), prj_trans, scale_denom);
+            }
+        }
+    }
+    // We only have a single style and no grouping.
+    else
+    {
+        int i = 0;
+        BOOST_FOREACH (feature_type_style * style, active_styles)
+        {
+            featureset_ptr features = ds->features(q);
+            if (features) {
+                render_style(lay, p, style, style_names[i++],
+                             features, prj_trans, scale_denom);
+            }
+        }
+    }
+
+}
+
+
+template <typename Processor>
+void feature_style_processor<Processor>::apply_to_layer(layer const& lay, Processor & p,
+                                                        projection const& proj0,
+                                                        double scale_denom,
+                                                        std::set<std::string>& names)
+{
+    std::vector<feature_type_style*> active_styles;
+
+    mapnik::box2d<double> dummy(0.0,0.0, 1.0, 1.0);
+    query q = query(dummy);
+
+    projection proj1(lay.srs());
+    proj_transform prj_trans(proj0,proj1);
+
+	prepare_datasource_query(lay, p, proj0, scale_denom, names, prj_trans, active_styles, q);
+
+    if (active_styles.size() > 0)
+    {
+        render_styles(lay, p, proj0, scale_denom, names, prj_trans, active_styles, q);
     }
 
 #if defined(RENDERING_STATS)
