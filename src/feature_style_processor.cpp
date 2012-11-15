@@ -38,6 +38,7 @@
 // boost
 #include <boost/foreach.hpp>
 #include <boost/concept_check.hpp>
+#include <boost/make_shared.hpp>
 
 // stl
 #include <vector>
@@ -131,6 +132,41 @@ struct has_process
         );
 };
 
+class featureset_buffer : public Featureset
+{
+public:
+	featureset_buffer()
+        : pos_(features_.begin())
+    {}
+
+    virtual ~featureset_buffer() {}
+
+    feature_ptr next()
+    {
+        while (pos_ != features_.end())
+        {
+        	return *pos_++;
+        }
+
+        return feature_ptr();
+    }
+
+    void push(feature_ptr feature)
+    {
+    	features_.push_back(feature);
+    }
+
+    void clear()
+    {
+    	features_.clear();
+    }
+
+private:
+    std::vector<feature_ptr> features_;
+    std::vector<feature_ptr>::iterator pos_;
+};
+
+
 
 template <typename Processor>
 feature_style_processor<Processor>::feature_style_processor(Map const& m, double scale_factor)
@@ -207,7 +243,6 @@ void feature_style_processor<Processor>::prepare_datasource_query(layer const& l
                                                         std::set<std::string>& names,
                                                         proj_transform const & prj_trans,
                                                         std::vector<feature_type_style*> & active_styles,
-                                                        query & q,
                                                         std::vector<featureset_ptr> & featureset_ptr_list
                                                         )
 {
@@ -322,7 +357,7 @@ void feature_style_processor<Processor>::prepare_datasource_query(layer const& l
     query::resolution_type res(m_.width()/qw,
                                m_.height()/qh);
 
-    q = query(layer_ext,res,scale_denom,m_.get_current_extent());
+    query q(layer_ext,res,scale_denom,m_.get_current_extent());
     attribute_collector collector(names);
     double filt_factor = 1.0;
     directive_collector d_collector(filt_factor);
@@ -424,7 +459,6 @@ void feature_style_processor<Processor>::render_styles(layer const& lay, Process
                                                         std::set<std::string>& names,
                                                         proj_transform const & prj_trans,
                                                         std::vector<feature_type_style*> & active_styles,
-                                                        query & q,
                                                         std::vector<featureset_ptr> & featureset_ptr_list
                                                         )
 {
@@ -442,7 +476,8 @@ void feature_style_processor<Processor>::render_styles(layer const& lay, Process
         featureset_ptr features = *featureset_ptr_list.begin();
         if (features) {
             // Cache all features into the memory_datasource before rendering.
-            memory_datasource cache;
+        	//featureset_buffer cache;
+        	boost::shared_ptr<featureset_buffer> cache;
             feature_ptr feature, prev;
 
             while ((feature = features->next()))
@@ -455,11 +490,11 @@ void feature_style_processor<Processor>::render_styles(layer const& lay, Process
                     BOOST_FOREACH (feature_type_style * style, active_styles)
                     {
                         render_style(lay, p, style, style_names[i++],
-                                     cache.features(q), prj_trans, scale_denom);
+                        		cache, prj_trans, scale_denom);
                     }
-                    cache.clear();
+                    cache->clear();
                 }
-                cache.push(feature);
+                cache->push(feature);
                 prev = feature;
             }
 
@@ -467,7 +502,7 @@ void feature_style_processor<Processor>::render_styles(layer const& lay, Process
             BOOST_FOREACH (feature_type_style * style, active_styles)
             {
                 render_style(lay, p, style, style_names[i++],
-                             cache.features(q), prj_trans, scale_denom);
+                             cache, prj_trans, scale_denom);
             }
         }
     }
@@ -476,18 +511,18 @@ void feature_style_processor<Processor>::render_styles(layer const& lay, Process
         featureset_ptr features = *featureset_ptr_list.begin();
         if (features) {
             // Cache all features into the memory_datasource before rendering.
-            memory_datasource cache;
+        	boost::shared_ptr<featureset_buffer> cache;
             feature_ptr feature;
             while ((feature = features->next()))
             {
-                cache.push(feature);
+                cache->push(feature);
             }
 
             int i = 0;
             BOOST_FOREACH (feature_type_style * style, active_styles)
             {
                 render_style(lay, p, style, style_names[i++],
-                             cache.features(q), prj_trans, scale_denom);
+                             cache, prj_trans, scale_denom);
             }
         }
     }
@@ -518,18 +553,16 @@ void feature_style_processor<Processor>::apply_to_layer(layer const& lay, Proces
 {
     std::vector<feature_type_style*> active_styles;
 
-    mapnik::box2d<double> dummy(0.0,0.0, 1.0, 1.0);
-    query q = query(dummy);
     std::vector<featureset_ptr> featureset_ptr_list;
 
     projection proj1(lay.srs());
     proj_transform prj_trans(proj0,proj1);
 
-	prepare_datasource_query(lay, p, proj0, scale_denom, names, prj_trans, active_styles, q, featureset_ptr_list);
+	prepare_datasource_query(lay, p, proj0, scale_denom, names, prj_trans, active_styles, featureset_ptr_list);
 
     if (active_styles.size() > 0)
     {
-        render_styles(lay, p, proj0, scale_denom, names, prj_trans, active_styles, q, featureset_ptr_list);
+        render_styles(lay, p, proj0, scale_denom, names, prj_trans, active_styles, featureset_ptr_list);
     }
 
 #if defined(RENDERING_STATS)

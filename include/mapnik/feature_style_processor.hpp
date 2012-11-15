@@ -72,7 +72,6 @@ private:
 						std::set<std::string>& names,
                         proj_transform const & prj_trans,
 						std::vector<feature_type_style*> & active_styles,
-						query & q,
 						std::vector<featureset_ptr> & featureset_ptr_list
 						);
     void render_styles(layer const& lay, Processor & p,
@@ -81,7 +80,6 @@ private:
 						std::set<std::string>& names,
                         proj_transform const & prj_trans,
 						std::vector<feature_type_style*> & active_styles,
-						query & q,
 						std::vector<featureset_ptr> & featureset_ptr_list
 						);
     /*!
