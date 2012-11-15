@@ -265,11 +265,6 @@ void feature_style_processor<Processor>::prepare_datasource_query(layer const& l
     }
 
 #if defined(RENDERING_STATS)
-    progress_timer layer_timer(std::clog, "rendering total for layer: '" + lay.name() + "'");
-#endif
-
-
-#if defined(RENDERING_STATS)
     if (! prj_trans.equal())
     {
         std::clog << "notice: reprojecting layer: '" << lay.name() << "' from/to:\n\t'"
@@ -298,9 +293,6 @@ void feature_style_processor<Processor>::prepare_datasource_query(layer const& l
     // if no intersection and projections are also equal, early return
     else if (prj_trans.equal())
     {
-#if defined(RENDERING_STATS)
-        layer_timer.discard();
-#endif
         return;
     }
     // next try intersection of layer extent back projected into map srs
@@ -319,9 +311,6 @@ void feature_style_processor<Processor>::prepare_datasource_query(layer const& l
     else
     {
         // if no intersection then nothing to do for layer
-#if defined(RENDERING_STATS)
-        layer_timer.discard();
-#endif
         return;
     }
 
@@ -557,6 +546,10 @@ void feature_style_processor<Processor>::apply_to_layer(layer const& lay, Proces
 
     projection proj1(lay.srs());
     proj_transform prj_trans(proj0,proj1);
+
+#if defined(RENDERING_STATS)
+    progress_timer layer_timer(std::clog, "rendering total for layer: '" + lay.name() + "'");
+#endif
 
 	prepare_datasource_query(lay, p, proj0, scale_denom, names, prj_trans, active_styles, featureset_ptr_list);
 
