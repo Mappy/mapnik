@@ -207,7 +207,8 @@ void feature_style_processor<Processor>::prepare_datasource_query(layer const& l
                                                         std::set<std::string>& names,
                                                         proj_transform const & prj_trans,
                                                         std::vector<feature_type_style*> & active_styles,
-                                                        query & q
+                                                        query & q,
+                                                        std::vector<featureset_ptr> & featureset_ptr_list
                                                         )
 {
     std::vector<std::string> const& style_names = lay.styles();
@@ -400,6 +401,21 @@ void feature_style_processor<Processor>::prepare_datasource_query(layer const& l
         }
     }
 
+    bool cache_features = lay.cache_features() && active_styles.size() > 1;
+    std::string group_by = lay.group_by();
+
+    if ( (group_by != "") || cache_features)
+    {
+    	featureset_ptr_list.push_back(ds->features(q));
+    }
+    else
+    {
+        for(size_t i = 0 ; i < active_styles.size(); i++)
+        {
+        	featureset_ptr_list.push_back(ds->features(q));
+        }
+    }
+
 }
 
 template <typename Processor>
@@ -408,7 +424,8 @@ void feature_style_processor<Processor>::render_styles(layer const& lay, Process
                                                         std::set<std::string>& names,
                                                         proj_transform const & prj_trans,
                                                         std::vector<feature_type_style*> & active_styles,
-                                                        query & q
+                                                        query & q,
+                                                        std::vector<featureset_ptr> & featureset_ptr_list
                                                         )
 {
     bool cache_features = lay.cache_features() && active_styles.size() > 1;
@@ -422,7 +439,7 @@ void feature_style_processor<Processor>::render_styles(layer const& lay, Process
     // changes value.
     if (group_by != "")
     {
-        featureset_ptr features = ds->features(q);
+        featureset_ptr features = *featureset_ptr_list.begin();
         if (features) {
             // Cache all features into the memory_datasource before rendering.
             memory_datasource cache;
@@ -456,7 +473,7 @@ void feature_style_processor<Processor>::render_styles(layer const& lay, Process
     }
     else if (cache_features)
     {
-        featureset_ptr features = ds->features(q);
+        featureset_ptr features = *featureset_ptr_list.begin();
         if (features) {
             // Cache all features into the memory_datasource before rendering.
             memory_datasource cache;
@@ -478,9 +495,11 @@ void feature_style_processor<Processor>::render_styles(layer const& lay, Process
     else
     {
         int i = 0;
+        std::vector<featureset_ptr>::iterator featuresets = featureset_ptr_list.begin();
         BOOST_FOREACH (feature_type_style * style, active_styles)
         {
-            featureset_ptr features = ds->features(q);
+            featureset_ptr features = *featuresets;
+            featuresets++;
             if (features) {
                 render_style(lay, p, style, style_names[i++],
                              features, prj_trans, scale_denom);
@@ -501,15 +520,16 @@ void feature_style_processor<Processor>::apply_to_layer(layer const& lay, Proces
 
     mapnik::box2d<double> dummy(0.0,0.0, 1.0, 1.0);
     query q = query(dummy);
+    std::vector<featureset_ptr> featureset_ptr_list;
 
     projection proj1(lay.srs());
     proj_transform prj_trans(proj0,proj1);
 
-	prepare_datasource_query(lay, p, proj0, scale_denom, names, prj_trans, active_styles, q);
+	prepare_datasource_query(lay, p, proj0, scale_denom, names, prj_trans, active_styles, q, featureset_ptr_list);
 
     if (active_styles.size() > 0)
     {
-        render_styles(lay, p, proj0, scale_denom, names, prj_trans, active_styles, q);
+        render_styles(lay, p, proj0, scale_denom, names, prj_trans, active_styles, q, featureset_ptr_list);
     }
 
 #if defined(RENDERING_STATS)
