@@ -39,6 +39,7 @@
 #include <boost/foreach.hpp>
 #include <boost/concept_check.hpp>
 #include <boost/make_shared.hpp>
+#include <boost/tuple/tuple.hpp>
 
 // stl
 #include <vector>
@@ -166,7 +167,7 @@ private:
     std::vector<feature_ptr>::iterator pos_;
 };
 
-
+typedef boost::tuple<layer const&, proj_transform&, std::vector<feature_type_style*>, std::vector<featureset_ptr> > layer_rendering_material;
 
 template <typename Processor>
 feature_style_processor<Processor>::feature_style_processor(Map const& m, double scale_factor)
@@ -191,13 +192,48 @@ void feature_style_processor<Processor>::apply()
         double scale_denom = mapnik::scale_denominator(m_,proj.is_geographic());
         scale_denom *= scale_factor_;
 
+        std::set<std::string> names;
+        std::vector<layer_rendering_material*> mat_list;
+
         BOOST_FOREACH ( layer const& lyr, m_.layers() )
         {
             if (lyr.visible(scale_denom))
             {
-                std::set<std::string> names;
-                apply_to_layer(lyr, p, proj, scale_denom, names);
+                projection proj1(lyr.srs());
+                proj_transform * proj_trans = new proj_transform(proj,proj1);
+                layer_rendering_material *mat = new layer_rendering_material(lyr, *proj_trans);
+                mat_list.push_back(mat);
+
+				#if defined(RENDERING_STATS)
+					progress_timer prepare_layer_timer(std::clog, "rendering total for layer: '" + lay.name() + "'");
+				#endif
+
+    			prepare_datasource_query(lyr, p, proj, scale_denom, names, mat->get<1>(), mat->get<2>(), mat->get<3>());
+
+				#if defined(RENDERING_STATS)
+    				prepare_layer_timer.stop();
+				#endif
+
+    			if (mat->get<2>().size() > 0)
+    			{
+                    mat_list.push_back(mat);
+    			}
             }
+        }
+        BOOST_FOREACH ( layer_rendering_material * mat, mat_list )
+        {
+
+			#if defined(RENDERING_STATS)
+				progress_timer render_layer_timer(std::clog, "rendering total for layer: '" + lay.name() + "'");
+			#endif
+
+			render_styles(mat->get<0>(), p, proj, scale_denom, names, mat->get<1>(), mat->get<2>(), mat->get<3>());
+
+			#if defined(RENDERING_STATS)
+				render_layer_timer.stop();
+			#endif
+
+			p.end_layer_processing(mat->get<0>());
         }
     }
     catch (proj_init_error& ex)
