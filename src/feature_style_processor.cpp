@@ -171,7 +171,21 @@ private:
     std::vector<feature_ptr>::iterator end_;
 };
 
-typedef boost::tuple<layer const&, proj_transform&, std::vector<feature_type_style*>, std::vector<featureset_ptr> > layer_rendering_material;
+
+struct layer_rendering_material {
+        layer const& lay_;
+        proj_transform proj_trans_;
+        std::vector<feature_type_style*> active_styles_;
+        std::vector<featureset_ptr> featureset_ptr_list_;
+
+        layer_rendering_material(layer const& lay, projection const& dest) :
+               lay_(lay),
+               proj_trans_(dest, projection(lay.srs())) {}
+};
+
+
+typedef boost::shared_ptr<layer_rendering_material> layer_rendering_material_ptr;
+
 
 template <typename Processor>
 feature_style_processor<Processor>::feature_style_processor(Map const& m, double scale_factor)
@@ -196,49 +210,45 @@ void feature_style_processor<Processor>::apply()
         double scale_denom = mapnik::scale_denominator(m_,proj.is_geographic());
         scale_denom *= scale_factor_;
 
-        //std::set<std::string> names;
-        std::vector<layer_rendering_material*> mat_list;
+        std::vector<layer_rendering_material_ptr> mat_list;
 
         BOOST_FOREACH ( layer const& lyr, m_.layers() )
         {
             if (lyr.visible(scale_denom))
             {
-                projection proj1(lyr.srs());
-                proj_transform * proj_trans = new proj_transform(proj,proj1);
-                layer_rendering_material *mat = new layer_rendering_material(lyr, *proj_trans);
-
                 std::set<std::string> names;
+                layer_rendering_material_ptr mat(new layer_rendering_material(lyr, proj));
 
-				#if defined(RENDERING_STATS)
-					progress_timer prepare_layer_timer(std::clog, "rendering total for layer: '" + lay.name() + "'");
-				#endif
+                #if defined(RENDERING_STATS)
+                    progress_timer prepare_layer_timer(std::clog, "rendering total for layer: '" + lay.name() + "'");
+                #endif
 
-    			prepare_datasource_query(lyr, p, proj, scale_denom, names, mat->get<1>(), mat->get<2>(), mat->get<3>());
+                prepare_datasource_query(mat->lay_, p, proj, scale_denom, names, mat->proj_trans_, mat->active_styles_, mat->featureset_ptr_list_);
 
-				#if defined(RENDERING_STATS)
-    				prepare_layer_timer.stop();
-				#endif
+                #if defined(RENDERING_STATS)
+                    prepare_layer_timer.stop();
+                #endif
 
-    			if (mat->get<2>().size() > 0)
-    			{
+                if (mat->active_styles_.size() > 0)
+                {
                     mat_list.push_back(mat);
-    			}
+                }
             }
         }
-        BOOST_FOREACH ( layer_rendering_material * mat, mat_list )
+        BOOST_FOREACH ( layer_rendering_material_ptr mat, mat_list )
         {
 
-			#if defined(RENDERING_STATS)
-				progress_timer render_layer_timer(std::clog, "rendering total for layer: '" + lay.name() + "'");
-			#endif
+            #if defined(RENDERING_STATS)
+                progress_timer render_layer_timer(std::clog, "rendering total for layer: '" + lay.name() + "'");
+            #endif
 
-			render_styles(mat->get<0>(), p, proj, scale_denom, mat->get<1>(), mat->get<2>(), mat->get<3>());
+            render_styles(mat->lay_, p, proj, scale_denom, mat->proj_trans_, mat->active_styles_, mat->featureset_ptr_list_);
 
-			#if defined(RENDERING_STATS)
-				render_layer_timer.stop();
-			#endif
+            #if defined(RENDERING_STATS)
+                render_layer_timer.stop();
+            #endif
 
-			p.end_layer_processing(mat->get<0>());
+            p.end_layer_processing(mat->lay_);
         }
     }
     catch (proj_init_error& ex)
@@ -282,7 +292,7 @@ template <typename Processor>
 void feature_style_processor<Processor>::prepare_datasource_query(layer const& lay, Processor & p, projection const& proj0,
                                                         double scale_denom,
                                                         std::set<std::string>& names,
-                                                        proj_transform const & prj_trans,
+                                                        proj_transform const& prj_trans,
                                                         std::vector<feature_type_style*> & active_styles,
                                                         std::vector<featureset_ptr> & featureset_ptr_list
                                                         )
@@ -486,7 +496,7 @@ void feature_style_processor<Processor>::prepare_datasource_query(layer const& l
 template <typename Processor>
 void feature_style_processor<Processor>::render_styles(layer const& lay, Processor & p, projection const& proj0,
                                                         double scale_denom,
-                                                        proj_transform const & prj_trans,
+                                                        proj_transform const& prj_trans,
                                                         std::vector<feature_type_style*> & active_styles,
                                                         std::vector<featureset_ptr> & featureset_ptr_list
                                                         )
@@ -519,7 +529,7 @@ void feature_style_processor<Processor>::render_styles(layer const& lay, Process
                     {
                         cache->ready_to_serve();
                         render_style(lay, p, style, style_names[i++],
-                        		cache, prj_trans, scale_denom);
+                                     cache, prj_trans, scale_denom);
                     }
                     cache->clear();
                 }

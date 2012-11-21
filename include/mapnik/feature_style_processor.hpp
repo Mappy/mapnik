@@ -67,20 +67,20 @@ private:
                         std::set<std::string>& names);
 
     void prepare_datasource_query(layer const& lay, Processor & p,
-    					projection const& proj0,
-						double scale_denom,
-						std::set<std::string>& names,
-                        proj_transform const & prj_trans,
-						std::vector<feature_type_style*> & active_styles,
-						std::vector<featureset_ptr> & featureset_ptr_list
-						);
+                        projection const& proj0,
+                        double scale_denom,
+                        std::set<std::string>& names,
+                        proj_transform const& prj_trans,
+                        std::vector<feature_type_style*> & active_styles,
+                        std::vector<featureset_ptr> & featureset_ptr_list
+                        );
     void render_styles(layer const& lay, Processor & p,
-    					projection const& proj0,
-						double scale_denom,
-                        proj_transform const & prj_trans,
-						std::vector<feature_type_style*> & active_styles,
-						std::vector<featureset_ptr> & featureset_ptr_list
-						);
+                        projection const& proj0,
+                        double scale_denom,
+                        proj_transform const& prj_trans,
+                        std::vector<feature_type_style*> & active_styles,
+                        std::vector<featureset_ptr> & featureset_ptr_list
+                        );
     /*!
      * @return renders a featureset with the given styles.
      */
