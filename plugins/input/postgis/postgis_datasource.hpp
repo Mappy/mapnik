@@ -74,7 +74,7 @@ private:
     std::string populate_tokens(const std::string& sql, double scale_denom, box2d<double> const& env, double pixel_width, double pixel_height) const;
     std::string populate_tokens(const std::string& sql) const;
     static std::string unquote(const std::string& sql);
-    boost::shared_ptr<IResultSet> get_resultset(boost::shared_ptr<Connection> const &conn, std::string const& sql) const;
+    boost::shared_ptr<IResultSet> get_resultset(boost::shared_ptr< Pool<Connection,ConnectionCreator> > const& pool, boost::shared_ptr<Connection> const &conn, std::string const& sql) const;
 
     static const std::string GEOMETRY_COLUMNS;
     static const std::string SPATIAL_REF_SYS;

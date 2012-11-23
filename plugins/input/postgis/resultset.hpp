@@ -32,6 +32,7 @@ class IResultSet
 public:
     //virtual IResultSet& operator=(const IResultSet& rhs) = 0;
     virtual ~IResultSet() {}
+    virtual bool use_connection() { return false; }
     virtual void close() = 0;
     virtual int getNumFields() const = 0;
     virtual bool next() = 0;
