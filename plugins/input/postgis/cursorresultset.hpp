@@ -25,14 +25,15 @@
 
 #include <mapnik/debug.hpp>
 
-#include "connection.hpp"
+#include "connection_manager.hpp"
 #include "resultset.hpp"
 
 class CursorResultSet : public IResultSet
 {
 public:
-    CursorResultSet(boost::shared_ptr<Connection> const &conn, std::string cursorName, int fetch_count)
-        : conn_(conn),
+    CursorResultSet(boost::shared_ptr< Pool<Connection,ConnectionCreator> > const& pool, boost::shared_ptr<Connection> const &conn, std::string cursorName, int fetch_count)
+        : pool_(pool),
+          conn_(conn),
           cursorName_(cursorName),
           fetch_size_(fetch_count),
           is_closed_(false),
@@ -41,16 +42,8 @@ public:
         getNextResultSet();
     }
 
-    CursorResultSet(const CursorResultSet& rhs)
-        : conn_(rhs.conn_),
-          cursorName_(rhs.cursorName_),
-          rs_(rhs.rs_),
-          fetch_size_(rhs.fetch_size_),
-          is_closed_(rhs.is_closed_),
-          refCount_(rhs.refCount_)
-    {
-        (*refCount_)++;
-    }
+    virtual bool use_connection() { return true; }
+
 
     virtual ~CursorResultSet()
     {
@@ -61,23 +54,6 @@ public:
         }
     }
 
-    CursorResultSet& operator=(const CursorResultSet& rhs)
-    {
-        if (this==&rhs) return *this;
-        if (--(refCount_)==0)
-        {
-            close();
-            delete refCount_,refCount_=0;
-        }
-        conn_=rhs.conn_;
-        cursorName_=rhs.cursorName_;
-        rs_=rhs.rs_;
-        refCount_=rhs.refCount_;
-        fetch_size_=rhs.fetch_size_;
-        is_closed_ = false;
-        (*refCount_)++;
-        return *this;
-    }
 
     virtual void close()
     {
@@ -92,6 +68,7 @@ public:
 
             conn_->execute(s.str());
             is_closed_ = true;
+            pool_->returnObject(conn_);
         }
     }
 
@@ -105,6 +82,7 @@ public:
         if (rs_->next()) {
             return true;
         } else if (rs_->size() == 0) {
+        	close();
             return false;
         } else {
             getNextResultSet();
@@ -166,12 +144,45 @@ private:
         MAPNIK_LOG_DEBUG(postgis) << "postgis_cursor_resultset: FETCH result (" << cursorName_ << "): " << rs_->size() << " rows";
     }
 
+    boost::shared_ptr< Pool<Connection,ConnectionCreator> > pool_;
     boost::shared_ptr<Connection> conn_;
     std::string cursorName_;
     boost::shared_ptr<ResultSet> rs_;
     int fetch_size_;
     bool is_closed_;
     int *refCount_;
+
+    CursorResultSet(const CursorResultSet& rhs)
+        : pool_(rhs.pool_),
+          conn_(rhs.conn_),
+          cursorName_(rhs.cursorName_),
+          rs_(rhs.rs_),
+          fetch_size_(rhs.fetch_size_),
+          is_closed_(rhs.is_closed_),
+          refCount_(rhs.refCount_)
+    {
+        (*refCount_)++;
+    }
+
+    CursorResultSet& operator=(const CursorResultSet& rhs)
+    {
+        if (this==&rhs) return *this;
+        if (--(refCount_)==0)
+        {
+            close();
+            delete refCount_,refCount_=0;
+        }
+        pool_=rhs.pool_;
+        conn_=rhs.conn_;
+        cursorName_=rhs.cursorName_;
+        rs_=rhs.rs_;
+        refCount_=rhs.refCount_;
+        fetch_size_=rhs.fetch_size_;
+        is_closed_ = false;
+        (*refCount_)++;
+        return *this;
+    }
+
 };
 
 #endif // POSTGIS_CURSORRESULTSET_HPP

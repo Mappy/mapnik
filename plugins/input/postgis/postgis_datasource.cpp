@@ -569,7 +569,7 @@ std::string postgis_datasource::populate_tokens(const std::string& sql, double s
 }
 
 
-boost::shared_ptr<IResultSet> postgis_datasource::get_resultset(boost::shared_ptr<Connection> const &conn, std::string const& sql) const
+boost::shared_ptr<IResultSet> postgis_datasource::get_resultset(boost::shared_ptr< Pool<Connection,ConnectionCreator> > const& pool, boost::shared_ptr<Connection> const &conn, std::string const& sql) const
 {
     if (cursor_fetch_size_ > 0)
     {
@@ -585,7 +585,7 @@ boost::shared_ptr<IResultSet> postgis_datasource::get_resultset(boost::shared_pt
             throw mapnik::datasource_exception("Postgis Plugin: error creating cursor for data select." );
         }
 
-        return boost::make_shared<CursorResultSet>(conn, cursor_name, cursor_fetch_size_);
+        return boost::make_shared<CursorResultSet>(pool, conn, cursor_name, cursor_fetch_size_);
 
     }
     else
@@ -594,6 +594,38 @@ boost::shared_ptr<IResultSet> postgis_datasource::get_resultset(boost::shared_pt
         return conn->executeQuery(sql, 1);
     }
 }
+
+
+
+// Allow resource release : when connection is kept by a cursorresultset
+template <typename T, typename PoolT>
+class CnxPoolGuard
+{
+private:
+    const T& obj_;
+    PoolT& pool_;
+    bool released_;
+public:
+    explicit CnxPoolGuard(const T& ptr,PoolT& pool)
+        : obj_(ptr),
+          pool_(pool), released_(false) {}
+
+    void releaseGuard(bool released)
+    {
+    	released_ = released;
+    }
+    ~CnxPoolGuard()
+    {
+    	if (!released_)
+    		pool_->returnObject(obj_);
+    }
+
+private:
+    CnxPoolGuard();
+    CnxPoolGuard(const CnxPoolGuard&);
+    CnxPoolGuard& operator=(const CnxPoolGuard&);
+};
+
 
 featureset_ptr postgis_datasource::features(const query& q) const
 {
@@ -616,7 +648,7 @@ featureset_ptr postgis_datasource::features(const query& q) const
         shared_ptr<Connection> conn = pool->borrowObject();
         if (conn && conn->isOK())
         {
-            PoolGuard<shared_ptr<Connection>, shared_ptr< Pool<Connection,ConnectionCreator> > > guard(conn ,pool);
+        	CnxPoolGuard<shared_ptr<Connection>, shared_ptr< Pool<Connection,ConnectionCreator> > > guard( conn ,pool );
 
             if (geometryColumn_.empty())
             {
@@ -697,7 +729,8 @@ featureset_ptr postgis_datasource::features(const query& q) const
                 s << " LIMIT " << row_limit_;
             }
 
-            boost::shared_ptr<IResultSet> rs = get_resultset(conn, s.str());
+            boost::shared_ptr<IResultSet> rs = get_resultset(pool, conn, s.str());
+            guard.releaseGuard(rs->use_connection());
             return boost::make_shared<postgis_featureset>(rs, ctx, desc_.get_encoding(), !key_field_.empty());
         }
         else
@@ -790,7 +823,7 @@ featureset_ptr postgis_datasource::features_at_point(coord2d const& pt) const
                 s << " LIMIT " << row_limit_;
             }
 
-            boost::shared_ptr<IResultSet> rs = get_resultset(conn, s.str());
+            boost::shared_ptr<IResultSet> rs = get_resultset(pool, conn, s.str());
             return boost::make_shared<postgis_featureset>(rs, ctx, desc_.get_encoding(), !key_field_.empty());
         }
     }
