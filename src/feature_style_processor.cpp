@@ -175,6 +175,7 @@ private:
 struct layer_rendering_material {
         layer const& lay_;
         proj_transform proj_trans_;
+        box2d<double> layer_ext2_;
         std::vector<feature_type_style*> active_styles_;
         std::vector<featureset_ptr> featureset_ptr_list_;
 
@@ -220,10 +221,10 @@ void feature_style_processor<Processor>::apply()
                 layer_rendering_material_ptr mat(new layer_rendering_material(lyr, proj));
 
                 #if defined(RENDERING_STATS)
-                    progress_timer prepare_layer_timer(std::clog, "rendering total for layer: '" + lay.name() + "'");
+                    progress_timer prepare_layer_timer(std::clog, "prepare_query for layer: '" + lay.name() + "'");
                 #endif
 
-                prepare_datasource_query(mat->lay_, p, proj, scale_denom, names, mat->proj_trans_, mat->active_styles_, mat->featureset_ptr_list_);
+                prepare_datasource_query(mat->lay_, p, proj, scale_denom, names, mat->proj_trans_, mat->layer_ext2_, mat->active_styles_, mat->featureset_ptr_list_);
 
                 #if defined(RENDERING_STATS)
                     prepare_layer_timer.stop();
@@ -233,23 +234,31 @@ void feature_style_processor<Processor>::apply()
                 {
                     mat_list.push_back(mat);
                 }
+
             }
         }
+
         BOOST_FOREACH ( layer_rendering_material_ptr mat, mat_list )
         {
 
-            #if defined(RENDERING_STATS)
-                progress_timer render_layer_timer(std::clog, "rendering total for layer: '" + lay.name() + "'");
-            #endif
+            if (mat->active_styles_.size() > 0)
+            {
+                p.start_layer_processing(mat->lay_, mat->layer_ext2_);
 
-            render_styles(mat->lay_, p, proj, scale_denom, mat->proj_trans_, mat->active_styles_, mat->featureset_ptr_list_);
+                #if defined(RENDERING_STATS)
+                    progress_timer render_layer_timer(std::clog, "rendering for layer: '" + lay.name() + "'");
+                #endif
 
-            #if defined(RENDERING_STATS)
-                render_layer_timer.stop();
-            #endif
+                render_styles(mat->lay_, p, proj, scale_denom, mat->proj_trans_, mat->active_styles_, mat->featureset_ptr_list_);
 
-            p.end_layer_processing(mat->lay_);
+                #if defined(RENDERING_STATS)
+                    render_layer_timer.stop();
+                #endif
+                p.end_layer_processing(mat->lay_);
+            }
+
         }
+
     }
     catch (proj_init_error& ex)
     {
@@ -293,6 +302,7 @@ void feature_style_processor<Processor>::prepare_datasource_query(layer const& l
                                                         double scale_denom,
                                                         std::set<std::string>& names,
                                                         proj_transform const& prj_trans,
+                                                        box2d<double>& layer_ext2,
                                                         std::vector<feature_type_style*> & active_styles,
                                                         std::vector<featureset_ptr> & featureset_ptr_list
                                                         )
@@ -373,7 +383,7 @@ void feature_style_processor<Processor>::prepare_datasource_query(layer const& l
         query_ext.clip(*maximum_extent);
     }
 
-    box2d<double> layer_ext2 = lay.envelope();
+    layer_ext2 = lay.envelope();
     if (fw_success)
     {
         if (prj_trans.forward(query_ext, PROJ_ENVELOPE_POINTS))
@@ -390,7 +400,6 @@ void feature_style_processor<Processor>::prepare_datasource_query(layer const& l
         }
     }
 
-    p.start_layer_processing(lay, layer_ext2);
 
     double qw = query_ext.width()>0 ? query_ext.width() : 1;
     double qh = query_ext.height()>0 ? query_ext.height() : 1;
@@ -598,23 +607,28 @@ void feature_style_processor<Processor>::apply_to_layer(layer const& lay, Proces
 
     projection proj1(lay.srs());
     proj_transform prj_trans(proj0,proj1);
+    box2d<double> layer_ext2;
 
 #if defined(RENDERING_STATS)
     progress_timer layer_timer(std::clog, "rendering total for layer: '" + lay.name() + "'");
 #endif
 
-	prepare_datasource_query(lay, p, proj0, scale_denom, names, prj_trans, active_styles, featureset_ptr_list);
+	prepare_datasource_query(lay, p, proj0, scale_denom, names, prj_trans, layer_ext2, active_styles, featureset_ptr_list);
 
     if (active_styles.size() > 0)
     {
+        p.start_layer_processing(lay,layer_ext2);
+
         render_styles(lay, p, proj0, scale_denom, prj_trans, active_styles, featureset_ptr_list);
+
+        p.end_layer_processing(lay);
     }
 
 #if defined(RENDERING_STATS)
     layer_timer.stop();
 #endif
 
-    p.end_layer_processing(lay);
+
 }
 
 
