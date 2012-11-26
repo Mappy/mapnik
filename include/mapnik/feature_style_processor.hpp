@@ -71,6 +71,7 @@ private:
                         double scale_denom,
                         std::set<std::string>& names,
                         proj_transform const& prj_trans,
+                        box2d<double>& layer_ext2,
                         std::vector<feature_type_style*> & active_styles,
                         std::vector<featureset_ptr> & featureset_ptr_list
                         );
