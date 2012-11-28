@@ -46,7 +46,7 @@ public:
     virtual const char* getValue(const char* name) const = 0;
 };
 
-class ResultSet : public IResultSet
+class ResultSet : public IResultSet, private boost::noncopyable
 {
 public:
     ResultSet(PGresult *res)
@@ -55,38 +55,6 @@ public:
         refCount_(new int(1))
     {
         numTuples_ = PQntuples(res_);
-    }
-
-    ResultSet(const ResultSet& rhs)
-      : res_(rhs.res_),
-        pos_(rhs.pos_),
-        numTuples_(rhs.numTuples_),
-        refCount_(rhs.refCount_)
-    {
-        (*refCount_)++;
-    }
-
-    ResultSet& operator=(const ResultSet& rhs)
-    {
-        if (this == &rhs)
-        {
-            return *this;
-        }
-
-        if (--(refCount_) == 0)
-        {
-            close();
-
-            delete refCount_;
-            refCount_ = 0;
-        }
-
-        res_ = rhs.res_;
-        pos_ = rhs.pos_;
-        numTuples_ = rhs.numTuples_;
-        refCount_ = rhs.refCount_;
-        (*refCount_)++;
-        return *this;
     }
 
     virtual void close()

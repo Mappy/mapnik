@@ -47,6 +47,8 @@
 
 using mapnik::transcoder;
 using mapnik::datasource;
+using mapnik::context_map;
+using mapnik::processor_context_ptr;
 using mapnik::box2d;
 using mapnik::layer_descriptor;
 using mapnik::featureset_ptr;
@@ -62,6 +64,8 @@ public:
     ~postgis_datasource();
     mapnik::datasource::datasource_t type() const;
     static const char * name();
+    processor_context_ptr get_context(context_map &) const;
+    featureset_ptr features_with_context(const query& q,processor_context_ptr ctx= processor_context_ptr()) const;
     featureset_ptr features(const query& q) const;
     featureset_ptr features_at_point(coord2d const& pt) const;
     mapnik::box2d<double> envelope() const;

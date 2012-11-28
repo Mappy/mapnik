@@ -40,8 +40,13 @@
 
 namespace mapnik {
 
-struct IProcessorContext;
-typedef MAPNIK_DECL boost::shared_ptr<IProcessorContext> ds_processor_context_ptr;
+class IProcessorContext {
+public:
+    virtual ~IProcessorContext() {}
+};
+
+typedef MAPNIK_DECL boost::shared_ptr<IProcessorContext> processor_context_ptr;
+typedef MAPNIK_DECL std::map<std::string, processor_context_ptr > context_map;
 
 typedef MAPNIK_DECL boost::shared_ptr<Feature> feature_ptr;
 
@@ -117,8 +122,8 @@ public:
      */
     virtual void bind() const {}
 
-    virtual ds_processor_context_ptr get_context() const { return ds_processor_context_ptr(); }
-    virtual featureset_ptr features_with_context(const query& q,ds_processor_context_ptr ctx= ds_processor_context_ptr()) const
+    virtual processor_context_ptr get_context(context_map&) const { return processor_context_ptr(); }
+    virtual featureset_ptr features_with_context(const query& q,processor_context_ptr ctx= processor_context_ptr()) const
     {
     	// default implementation without context use features
     	return features(q);

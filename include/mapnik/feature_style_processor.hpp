@@ -66,7 +66,7 @@ private:
                         double scale_denom,
                         std::set<std::string>& names);
 
-    void prepare_datasource_query(layer const& lay, Processor & p,
+    void prepare_datasource_query(context_map& ctx,layer const& lay, Processor & p,
                         projection const& proj0,
                         double scale_denom,
                         std::set<std::string>& names,
