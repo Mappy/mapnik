@@ -28,7 +28,7 @@
 #include "connection_manager.hpp"
 #include "resultset.hpp"
 
-class CursorResultSet : public IResultSet
+class CursorResultSet : public IResultSet, private boost::noncopyable
 {
 public:
     CursorResultSet(boost::shared_ptr< Pool<Connection,ConnectionCreator> > const& pool, boost::shared_ptr<Connection> const &conn, std::string cursorName, int fetch_count)
@@ -152,36 +152,6 @@ private:
     bool is_closed_;
     int *refCount_;
 
-    CursorResultSet(const CursorResultSet& rhs)
-        : pool_(rhs.pool_),
-          conn_(rhs.conn_),
-          cursorName_(rhs.cursorName_),
-          rs_(rhs.rs_),
-          fetch_size_(rhs.fetch_size_),
-          is_closed_(rhs.is_closed_),
-          refCount_(rhs.refCount_)
-    {
-        (*refCount_)++;
-    }
-
-    CursorResultSet& operator=(const CursorResultSet& rhs)
-    {
-        if (this==&rhs) return *this;
-        if (--(refCount_)==0)
-        {
-            close();
-            delete refCount_,refCount_=0;
-        }
-        pool_=rhs.pool_;
-        conn_=rhs.conn_;
-        cursorName_=rhs.cursorName_;
-        rs_=rhs.rs_;
-        refCount_=rhs.refCount_;
-        fetch_size_=rhs.fetch_size_;
-        is_closed_ = false;
-        (*refCount_)++;
-        return *this;
-    }
 
 };
 

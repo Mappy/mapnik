@@ -597,6 +597,35 @@ boost::shared_ptr<IResultSet> postgis_datasource::get_resultset(boost::shared_pt
 
 
 
+namespace
+{
+class postgis_processor_context : public mapnik::IProcessorContext
+{
+public:
+    postgis_processor_context() {}
+    ~postgis_processor_context() {}
+
+};
+}
+
+processor_context_ptr postgis_datasource::get_context(context_map & ctx) const
+{
+    std::string ds_name(name());
+
+    // TODO if ! asyncronous_ return  processor_context_ptr() // no context
+    // std::clog << "\n+++ postgis_datasource::get_context = " << ds_name << std::endl;
+
+    if (!ctx.count(ds_name))
+    {
+        processor_context_ptr pgis_ctx = boost::make_shared<postgis_processor_context>();
+        ctx[ds_name] = pgis_ctx;
+        return ctx[ds_name];
+    }
+    else
+        return ctx[ds_name];
+
+}
+
 // Allow resource release : when connection is kept by a cursorresultset
 template <typename T, typename PoolT>
 class CnxPoolGuard
@@ -626,9 +655,14 @@ private:
     CnxPoolGuard& operator=(const CnxPoolGuard&);
 };
 
-
 featureset_ptr postgis_datasource::features(const query& q) const
 {
+    return features_with_context(q);
+}
+
+featureset_ptr postgis_datasource::features_with_context(const query& q,processor_context_ptr ctx) const
+{
+
     if (! is_bound_)
     {
         bind();

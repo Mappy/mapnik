@@ -205,6 +205,12 @@ void feature_style_processor<Processor>::apply()
     Processor & p = static_cast<Processor&>(*this);
     p.start_map_processing(m_);
 
+<<<<<<< HEAD
+=======
+    start_meta_collectors();
+    context_map ctx;
+    
+>>>>>>> cd5ab53... Use feature_with_context in feature_style_processor
     try
     {
         projection proj(m_.srs());
@@ -224,7 +230,7 @@ void feature_style_processor<Processor>::apply()
                     progress_timer prepare_layer_timer(std::clog, "prepare_query for layer: '" + lay.name() + "'");
                 #endif
 
-                prepare_datasource_query(mat->lay_, p, proj, scale_denom, names, mat->proj_trans_, mat->layer_ext2_, mat->active_styles_, mat->featureset_ptr_list_);
+                prepare_datasource_query(ctx, mat->lay_, p, proj, scale_denom, names, mat->proj_trans_, mat->layer_ext2_, mat->active_styles_, mat->featureset_ptr_list_);
 
                 #if defined(RENDERING_STATS)
                     prepare_layer_timer.stop();
@@ -298,7 +304,7 @@ void feature_style_processor<Processor>::apply(mapnik::layer const& lyr, std::se
 }
 
 template <typename Processor>
-void feature_style_processor<Processor>::prepare_datasource_query(layer const& lay, Processor & p, projection const& proj0,
+void feature_style_processor<Processor>::prepare_datasource_query(context_map& ctx,layer const& lay, Processor & p, projection const& proj0,
                                                         double scale_denom,
                                                         std::set<std::string>& names,
                                                         proj_transform const& prj_trans,
@@ -324,6 +330,8 @@ void feature_style_processor<Processor>::prepare_datasource_query(layer const& l
 
         return;
     }
+
+    mapnik::processor_context_ptr current_ctx = ds->get_context(ctx);
 
 #if defined(RENDERING_STATS)
     if (! prj_trans.equal())
@@ -490,13 +498,13 @@ void feature_style_processor<Processor>::prepare_datasource_query(layer const& l
 
     if ( (group_by != "") || cache_features)
     {
-    	featureset_ptr_list.push_back(ds->features(q));
+    	featureset_ptr_list.push_back(ds->features_with_context(q,current_ctx));
     }
     else
     {
         for(size_t i = 0 ; i < active_styles.size(); i++)
         {
-        	featureset_ptr_list.push_back(ds->features(q));
+        	featureset_ptr_list.push_back(ds->features_with_context(q,current_ctx));
         }
     }
 
@@ -605,6 +613,7 @@ void feature_style_processor<Processor>::apply_to_layer(layer const& lay, Proces
 
     std::vector<featureset_ptr> featureset_ptr_list;
 
+    context_map ctx;
     projection proj1(lay.srs());
     proj_transform prj_trans(proj0,proj1);
     box2d<double> layer_ext2;
@@ -613,7 +622,7 @@ void feature_style_processor<Processor>::apply_to_layer(layer const& lay, Proces
     progress_timer layer_timer(std::clog, "rendering total for layer: '" + lay.name() + "'");
 #endif
 
-	prepare_datasource_query(lay, p, proj0, scale_denom, names, prj_trans, layer_ext2, active_styles, featureset_ptr_list);
+	prepare_datasource_query(ctx, lay, p, proj0, scale_denom, names, prj_trans, layer_ext2, active_styles, featureset_ptr_list);
 
     if (active_styles.size() > 0)
     {
