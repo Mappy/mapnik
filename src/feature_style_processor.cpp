@@ -219,10 +219,13 @@ void feature_style_processor<Processor>::apply()
 
         std::vector<layer_rendering_material_ptr> mat_list;
 
+        bind_datasources();
+
         BOOST_FOREACH ( layer const& lyr, m_.layers() )
         {
             if (lyr.visible(scale_denom))
             {
+
                 std::set<std::string> names;
                 layer_rendering_material_ptr mat(new layer_rendering_material(lyr, proj));
 
@@ -302,6 +305,20 @@ void feature_style_processor<Processor>::apply(mapnik::layer const& lyr, std::se
     }
     p.end_map_processing(m_);
 }
+
+
+template <typename Processor>
+void feature_style_processor<Processor>::bind_datasources()
+{
+    BOOST_FOREACH ( layer const& lyr, m_.layers() )
+    {
+        mapnik::datasource_ptr ds = lyr.datasource();
+        if (ds)
+            ds->bind();
+
+    }
+}
+
 
 template <typename Processor>
 void feature_style_processor<Processor>::prepare_datasource_query(context_map& ctx,layer const& lay, Processor & p, projection const& proj0,

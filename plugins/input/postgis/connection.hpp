@@ -145,6 +145,87 @@ public:
         return boost::make_shared<ResultSet>(result);
     }
 
+    bool executeAsyncQuery(const std::string& sql, int type = 0) const
+    {
+
+        int result = 0;
+        if (type == 1)
+        {
+            result = PQsendQueryParams(conn_,sql.c_str(), 0, 0, 0, 0, 0, 1);
+        }
+        else
+        {
+            result = PQsendQuery(conn_, sql.c_str());
+        }
+
+        if (result != 1)
+        {
+            std::ostringstream s;
+            s << "Postgis Plugin: PSQL error";
+            if (conn_)
+            {
+                std::string msg = PQerrorMessage(conn_);
+                if (! msg.empty())
+                {
+                    s << ":\n" <<  msg.substr(0, msg.size() - 1);
+                }
+
+                s << "\nFull async sql was: '" <<  sql << "'\n";
+            }
+            else
+            {
+                s << "unable to connect to database";
+            }
+
+            throw mapnik::datasource_exception(s.str());
+        }
+
+        return result;
+    }
+
+    boost::shared_ptr<ResultSet> getAsyncResult(bool first=true) const
+    {
+       PGresult *result = PQgetResult(conn_);
+
+       if (! result || (PQresultStatus(result) != PGRES_TUPLES_OK))
+       {
+           std::ostringstream s;
+           s << "Postgis Plugin: PSQL error";
+           if (conn_)
+           {
+               std::string msg = PQerrorMessage(conn_);
+               if (! msg.empty())
+               {
+                   s << ":\n" <<  msg.substr(0, msg.size() - 1);
+               }
+
+               s << "\nasync result \n";
+           }
+           else
+           {
+               s << "unable to connect to database";
+           }
+
+           if (result)
+           {
+               PQclear(result);
+           }
+           else
+           {
+               if (!first)
+               {
+                   return boost::shared_ptr<ResultSet>();
+               }
+           }
+
+           throw mapnik::datasource_exception(s.str());
+
+       }
+
+       return boost::make_shared<ResultSet>(result);
+    }
+
+
     std::string client_encoding() const
     {
         return PQparameterStatus(conn_, "client_encoding");
