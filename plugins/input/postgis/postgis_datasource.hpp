@@ -44,6 +44,7 @@
 #include "connection_manager.hpp"
 #include "resultset.hpp"
 #include "cursorresultset.hpp"
+#include "asyncresultset.hpp"
 
 using mapnik::transcoder;
 using mapnik::datasource;
@@ -79,6 +80,7 @@ private:
     std::string populate_tokens(const std::string& sql) const;
     static std::string unquote(const std::string& sql);
     boost::shared_ptr<IResultSet> get_resultset(boost::shared_ptr< Pool<Connection,ConnectionCreator> > const& pool, boost::shared_ptr<Connection> const &conn, std::string const& sql) const;
+    boost::shared_ptr<IResultSet> get_asyncresultset(processor_context_ptr ctx, boost::shared_ptr< Pool<Connection,ConnectionCreator> > const& pool, boost::shared_ptr<Connection> const &conn, std::string const& sql) const;
 
     static const std::string GEOMETRY_COLUMNS;
     static const std::string SPATIAL_REF_SYS;
@@ -106,6 +108,7 @@ private:
     const std::string scale_denom_token_;
     const std::string pixel_width_token_;
     const std::string pixel_height_token_;
+    bool asyncronous_request_;
     bool persist_connection_;
     bool extent_from_subquery_;
     // params below are for testing purposes only (will likely be removed at any time)

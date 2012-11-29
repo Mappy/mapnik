@@ -79,6 +79,7 @@ postgis_datasource::postgis_datasource(parameters const& params, bool bind)
       scale_denom_token_("!scale_denominator!"),
       pixel_width_token_("!pixel_width!"),
       pixel_height_token_("!pixel_height!"),
+      asyncronous_request_(*params_.get<mapnik::boolean>("asynchronous_request", false)),
       persist_connection_(*params_.get<mapnik::boolean>("persist_connection", true)),
       extent_from_subquery_(*params_.get<mapnik::boolean>("extent_from_subquery", false)),
       // params below are for testing purposes only (will likely be removed at any time)
@@ -115,6 +116,7 @@ void postgis_datasource::bind() const
 
     boost::optional<int> initial_size = params_.get<int>("initial_size", 1);
     boost::optional<int> max_size = params_.get<int>("max_size", 10);
+
     boost::optional<mapnik::boolean> autodetect_key_field = params_.get<mapnik::boolean>("autodetect_key_field", false);
 
     boost::optional<mapnik::boolean> simplify_opt = params_.get<mapnik::boolean>("simplify_geometries", false);
@@ -418,6 +420,7 @@ void postgis_datasource::bind() const
             rs->close();
 
             is_bound_ = true;
+
         }
     }
 }
@@ -595,7 +598,25 @@ boost::shared_ptr<IResultSet> postgis_datasource::get_resultset(boost::shared_pt
     }
 }
 
+// TODO : refactor with get_resultset later
+boost::shared_ptr<IResultSet> postgis_datasource::get_asyncresultset(processor_context_ptr ctx, boost::shared_ptr< Pool<Connection,ConnectionCreator> > const& pool, boost::shared_ptr<Connection> const &conn, std::string const& sql) const
+{
 
+    if (conn)
+    {
+        // lauch asynch req & create asynchresult with conn
+        // std::clog << "\n>>>>> postgis_datasource::get_asyncresultset executeAsyncQuery " << std::endl;
+        conn->executeAsyncQuery(sql, 1);
+        return boost::make_shared<AsyncResultSet>(ctx, pool, conn, sql );
+    }
+    else
+    {
+        // create asynchResult  with  null conn
+        // std::clog << "\n>>>>> postgis_datasource::get_asyncresultset differ asyncQuery " << std::endl;
+        return boost::make_shared<AsyncResultSet>(ctx, pool, conn, sql );
+    }
+
+}
 
 namespace
 {
@@ -612,8 +633,8 @@ processor_context_ptr postgis_datasource::get_context(context_map & ctx) const
 {
     std::string ds_name(name());
 
-    // TODO if ! asyncronous_ return  processor_context_ptr() // no context
-    // std::clog << "\n+++ postgis_datasource::get_context = " << ds_name << std::endl;
+    if (! asyncronous_request_)
+        return  processor_context_ptr();
 
     if (!ctx.count(ds_name))
     {
@@ -645,7 +666,7 @@ public:
     }
     ~CnxPoolGuard()
     {
-    	if (!released_)
+        if (obj_ && !released_)
     		pool_->returnObject(obj_);
     }
 
@@ -655,12 +676,8 @@ private:
     CnxPoolGuard& operator=(const CnxPoolGuard&);
 };
 
+// TODO: later instead use return features_with_context(q) => refactor features_with_context
 featureset_ptr postgis_datasource::features(const query& q) const
-{
-    return features_with_context(q);
-}
-
-featureset_ptr postgis_datasource::features_with_context(const query& q,processor_context_ptr ctx) const
 {
 
     if (! is_bound_)
@@ -682,7 +699,7 @@ featureset_ptr postgis_datasource::features_with_context(const query& q,processo
         shared_ptr<Connection> conn = pool->borrowObject();
         if (conn && conn->isOK())
         {
-        	CnxPoolGuard<shared_ptr<Connection>, shared_ptr< Pool<Connection,ConnectionCreator> > > guard( conn ,pool );
+            CnxPoolGuard<shared_ptr<Connection>, shared_ptr< Pool<Connection,ConnectionCreator> > > guard( conn ,pool );
 
             if (geometryColumn_.empty())
             {
@@ -771,6 +788,129 @@ featureset_ptr postgis_datasource::features_with_context(const query& q,processo
         {
             throw mapnik::datasource_exception("Postgis Plugin: bad connection");
         }
+    }
+
+    return featureset_ptr();
+}
+
+featureset_ptr postgis_datasource::features_with_context(const query& q,processor_context_ptr proc_ctx) const
+{
+
+    if (!proc_ctx) // TODO: later refactor features_with_context instead
+    {
+        return features(q);
+    }
+
+    if (! is_bound_)
+    {
+        bind();
+    }
+
+
+#ifdef MAPNIK_STATS
+    mapnik::progress_timer __stats__(std::clog, "postgis_datasource::features_with_context");
+#endif
+
+    box2d<double> const& box = q.get_bbox();
+    double scale_denom = q.scale_denominator();
+
+    ConnectionManager* mgr = ConnectionManager::instance();
+    shared_ptr< Pool<Connection,ConnectionCreator> > pool = mgr->getPool(creator_.id());
+    if (pool)
+    {
+        // TO SEE : limit use to max-1 conn for async request => if unused = 1 don't borrow object
+        shared_ptr<Connection> conn = pool->borrowObject();
+
+        if (conn && !conn->isOK())
+        {
+            throw mapnik::datasource_exception("Postgis Plugin: bad connection");
+        }
+        // NB conn can be null, if there is no connection available at this point
+       	CnxPoolGuard<shared_ptr<Connection>, shared_ptr< Pool<Connection,ConnectionCreator> > > guard( conn ,pool );
+
+        if (geometryColumn_.empty())
+        {
+            std::ostringstream s_error;
+            s_error << "PostGIS: geometry name lookup failed for table '";
+
+            if (! schema_.empty())
+            {
+                s_error << schema_ << ".";
+            }
+            s_error << geometry_table_
+                    << "'. Please manually provide the 'geometry_field' parameter or add an entry "
+                    << "in the geometry_columns for '";
+
+            if (! schema_.empty())
+            {
+                s_error << schema_ << ".";
+            }
+            s_error << geometry_table_ << "'.";
+
+            throw mapnik::datasource_exception(s_error.str());
+        }
+
+        std::ostringstream s;
+
+        const double px_gw = 1.0 / boost::get<0>(q.resolution());
+        const double px_gh = 1.0 / boost::get<1>(q.resolution());
+
+        s << "SELECT ST_AsBinary(";
+
+        if (simplify_geometries_) {
+          s << "ST_Simplify(";
+        }
+
+        s << "\"" << geometryColumn_ << "\"";
+
+        if (simplify_geometries_) {
+          const double tolerance = std::min(px_gw, px_gh) / 2.0;
+          s << ", " << tolerance << ")";
+        }
+
+        s << ") AS geom";
+
+        mapnik::context_ptr ctx = boost::make_shared<mapnik::context_type>();
+        std::set<std::string> const& props = q.property_names();
+        std::set<std::string>::const_iterator pos = props.begin();
+        std::set<std::string>::const_iterator end = props.end();
+
+        if (! key_field_.empty())
+        {
+            mapnik::sql_utils::quote_attr(s, key_field_);
+            ctx->push(key_field_);
+
+            for (; pos != end; ++pos)
+            {
+                if (*pos != key_field_)
+                {
+                    mapnik::sql_utils::quote_attr(s, *pos);
+                    ctx->push(*pos);
+                }
+            }
+        }
+        else
+        {
+            for (; pos != end; ++pos)
+            {
+                mapnik::sql_utils::quote_attr(s, *pos);
+                ctx->push(*pos);
+            }
+        }
+
+        std::string table_with_bbox = populate_tokens(table_, scale_denom, box, px_gw, px_gh);
+
+        s << " FROM " << table_with_bbox;
+
+        if (row_limit_ > 0)
+        {
+            s << " LIMIT " << row_limit_;
+        }
+
+        boost::shared_ptr<IResultSet> rs = get_asyncresultset(proc_ctx, pool, conn, s.str());
+        guard.releaseGuard(rs->use_connection());
+        return boost::make_shared<postgis_featureset>(rs, ctx, desc_.get_encoding(), !key_field_.empty());
+
     }
 
     return featureset_ptr();
