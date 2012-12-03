@@ -205,12 +205,6 @@ void feature_style_processor<Processor>::apply()
     Processor & p = static_cast<Processor&>(*this);
     p.start_map_processing(m_);
 
-<<<<<<< HEAD
-=======
-    start_meta_collectors();
-    context_map ctx;
-    
->>>>>>> cd5ab53... Use feature_with_context in feature_style_processor
     try
     {
         projection proj(m_.srs());
