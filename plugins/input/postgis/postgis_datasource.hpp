@@ -108,6 +108,7 @@ private:
     const std::string scale_denom_token_;
     const std::string pixel_width_token_;
     const std::string pixel_height_token_;
+    int pool_max_size_;
     bool asyncronous_request_;
     bool persist_connection_;
     bool extent_from_subquery_;

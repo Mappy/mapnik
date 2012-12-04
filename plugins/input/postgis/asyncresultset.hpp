@@ -28,11 +28,16 @@
 #include "connection_manager.hpp"
 #include "resultset.hpp"
 #include <mapnik/datasource.hpp>
+#include <queue>
+
+class postgis_processor_context;
+typedef boost::shared_ptr<postgis_processor_context> postgis_processor_context_ptr;
+
 
 class AsyncResultSet : public IResultSet, private boost::noncopyable
 {
 public:
-    AsyncResultSet(mapnik::processor_context_ptr const& ctx, boost::shared_ptr< Pool<Connection,ConnectionCreator> > const& pool, boost::shared_ptr<Connection> const &conn, const std::string& sql )
+    AsyncResultSet(postgis_processor_context_ptr const& ctx, boost::shared_ptr< Pool<Connection,ConnectionCreator> > const& pool, boost::shared_ptr<Connection> const &conn, const std::string& sql )
         : ctx_(ctx),
           pool_(pool),
           conn_(conn),
@@ -86,15 +91,11 @@ public:
             }
             else
             {
-                conn_ = pool_->borrowObject();
-                if (conn_ && conn_->isOK())
+                // if request not yet sent : pop request from queue, send and get result in the same call
+                prepare_next();
+                if (conn_)
                 {
-                    conn_->executeAsyncQuery(sql_, 1);
                     rs_ = conn_->getAsyncResult();
-                }
-                else
-                {
-                    throw mapnik::datasource_exception("Postgis Plugin: bad connection");
                 }
             }
         }
@@ -109,6 +110,7 @@ public:
                 return true;
             }
             close();
+            prepare_next();
         }
         return next_res;
     }
@@ -154,7 +156,7 @@ public:
     }
 
 private:
-    mapnik::processor_context_ptr ctx_;
+    postgis_processor_context_ptr ctx_;
     boost::shared_ptr< Pool<Connection,ConnectionCreator> > pool_;
     boost::shared_ptr<Connection> conn_;
     std::string sql_;
@@ -162,7 +164,61 @@ private:
     bool is_closed_;
     int *refCount_;
 
+    void prepare()
+    {
+        conn_ = pool_->borrowObject();
+        if (conn_ && conn_->isOK())
+        {
+            conn_->executeAsyncQuery(sql_, 1);
+        }
+        else
+        {
+            throw mapnik::datasource_exception("Postgis Plugin: bad connection");
+        }
+    }
+
+    void prepare_next();
 
 };
+
+class postgis_processor_context : public mapnik::IProcessorContext
+{
+public:
+    postgis_processor_context() {}
+    ~postgis_processor_context() {}
+
+    void add_request(boost::shared_ptr<AsyncResultSet> const& req)
+    {
+        q_.push(req);
+    }
+
+    boost::shared_ptr<AsyncResultSet> pop_next_request()
+    {
+        boost::shared_ptr<AsyncResultSet> r;
+        if (!q_.empty())
+        {
+            r = q_.front();
+            q_.pop();
+        }
+        return r;
+    }
+
+private:
+    typedef std::queue<boost::shared_ptr<AsyncResultSet> > asynch_queue;
+    asynch_queue q_;
+
+};
+
+void AsyncResultSet::prepare_next()
+{
+
+    // ensure cnx pool has unused cnx
+    boost::shared_ptr<AsyncResultSet> next = ctx_->pop_next_request();
+    if (next)
+    {
+        next->prepare();
+    }
+}
+
 
 #endif // POSTGIS_ASYNCRESULTSET_HPP

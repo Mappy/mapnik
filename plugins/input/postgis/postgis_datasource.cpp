@@ -79,6 +79,7 @@ postgis_datasource::postgis_datasource(parameters const& params, bool bind)
       scale_denom_token_("!scale_denominator!"),
       pixel_width_token_("!pixel_width!"),
       pixel_height_token_("!pixel_height!"),
+      pool_max_size_(*params_.get<int>("max_size", 10)),
       asyncronous_request_(*params_.get<mapnik::boolean>("asynchronous_request", false)),
       persist_connection_(*params_.get<mapnik::boolean>("persist_connection", true)),
       extent_from_subquery_(*params_.get<mapnik::boolean>("extent_from_subquery", false)),
@@ -115,15 +116,13 @@ void postgis_datasource::bind() const
 #endif
 
     boost::optional<int> initial_size = params_.get<int>("initial_size", 1);
-    boost::optional<int> max_size = params_.get<int>("max_size", 10);
-
     boost::optional<mapnik::boolean> autodetect_key_field = params_.get<mapnik::boolean>("autodetect_key_field", false);
 
     boost::optional<mapnik::boolean> simplify_opt = params_.get<mapnik::boolean>("simplify_geometries", false);
     simplify_geometries_ = simplify_opt && *simplify_opt;
 
     ConnectionManager* mgr = ConnectionManager::instance();
-    mgr->registerPool(creator_, *initial_size, *max_size);
+    mgr->registerPool(creator_, *initial_size, pool_max_size_);
 
     shared_ptr< Pool<Connection,ConnectionCreator> > pool = mgr->getPool(creator_.id());
     if (pool)
@@ -598,36 +597,28 @@ boost::shared_ptr<IResultSet> postgis_datasource::get_resultset(boost::shared_pt
     }
 }
 
+
 // TODO : refactor with get_resultset later
 boost::shared_ptr<IResultSet> postgis_datasource::get_asyncresultset(processor_context_ptr ctx, boost::shared_ptr< Pool<Connection,ConnectionCreator> > const& pool, boost::shared_ptr<Connection> const &conn, std::string const& sql) const
 {
 
+    boost::shared_ptr<postgis_processor_context> pgis_ctxt = boost::static_pointer_cast<postgis_processor_context>(ctx);
     if (conn)
     {
         // lauch asynch req & create asynchresult with conn
-        // std::clog << "\n>>>>> postgis_datasource::get_asyncresultset executeAsyncQuery " << std::endl;
         conn->executeAsyncQuery(sql, 1);
-        return boost::make_shared<AsyncResultSet>(ctx, pool, conn, sql );
+        return boost::make_shared<AsyncResultSet>(pgis_ctxt, pool, conn, sql );
     }
     else
     {
         // create asynchResult  with  null conn
-        // std::clog << "\n>>>>> postgis_datasource::get_asyncresultset differ asyncQuery " << std::endl;
-        return boost::make_shared<AsyncResultSet>(ctx, pool, conn, sql );
+        boost::shared_ptr<AsyncResultSet> res = boost::make_shared<AsyncResultSet>(pgis_ctxt, pool, conn, sql );
+        pgis_ctxt->add_request(res);
+        return res;
     }
 
 }
 
-namespace
-{
-class postgis_processor_context : public mapnik::IProcessorContext
-{
-public:
-    postgis_processor_context() {}
-    ~postgis_processor_context() {}
-
-};
-}
 
 processor_context_ptr postgis_datasource::get_context(context_map & ctx) const
 {
@@ -818,8 +809,14 @@ featureset_ptr postgis_datasource::features_with_context(const query& q,processo
     shared_ptr< Pool<Connection,ConnectionCreator> > pool = mgr->getPool(creator_.id());
     if (pool)
     {
-        // TO SEE : limit use to max-1 conn for async request => if unused = 1 don't borrow object
-        shared_ptr<Connection> conn = pool->borrowObject();
+
+        shared_ptr<Connection> conn;
+
+        // limit use to max-1 conn for async request => if reached don't borrow connexion object
+        if (  pool->size().second != unsigned(pool_max_size_-1))
+        {
+            conn= pool->borrowObject();
+        }
 
         if (conn && !conn->isOK())
         {
